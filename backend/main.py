@@ -30,7 +30,6 @@ try:
 except Exception:
     STEM_AVAILABLE = False
 
-
 # ---------- إعداد البيئة والمسارات ----------
 load_dotenv()
 BASE_DIR = os.path.dirname(__file__)
@@ -45,7 +44,6 @@ PORT = int(os.getenv("PORT", "8000"))
 
 DATA_JSON = os.path.join(DATA_DIR, "quran.json")
 TANZIL_XML = os.path.join(DATA_DIR, "quran-simple.xml")
-
 
 # ---------- دوال المعالجة ----------
 TASHKEEL_RE = re.compile(r"[ؗ-ًؚ-ْٗ-ٰٟۖ-ۭ]")
@@ -73,7 +71,6 @@ def stem_tokens(tokens: List[str]) -> List[str]:
         out.append(stem)
     return out
 
-
 # ---------- تحويل Tanzil XML إلى JSON ----------
 def convert_tanzil_xml(xml_path: str, out_path: str) -> bool:
     if not os.path.exists(xml_path):
@@ -100,7 +97,6 @@ def convert_tanzil_xml(xml_path: str, out_path: str) -> bool:
         print("⚠️ Tanzil conversion failed:", e)
         return False
 
-
 # ---------- تحميل البيانات ----------
 if not os.path.exists(DATA_JSON):
     if not convert_tanzil_xml(TANZIL_XML, DATA_JSON):
@@ -112,7 +108,6 @@ with open(DATA_JSON, "r", encoding="utf-8") as f:
 
 raw_ayahs: List[str] = [d.get("ayah", "") for d in DATA]
 
-
 # ---------- معالجة النصوص ----------
 def preprocess_text(s: str) -> str:
     s = normalize_ar(s)
@@ -121,7 +116,6 @@ def preprocess_text(s: str) -> str:
     return " ".join(toks)
 
 corpus_texts: List[str] = [preprocess_text(t) for t in raw_ayahs]
-
 
 # ---------- تحميل نموذج التضمين ----------
 print(f"🧠 Loading embedding model: {MODEL_ID}")
@@ -151,7 +145,6 @@ if not INSTR_AVAILABLE:
         return arr.astype(np.float32)
     EMBED_NAME = FALLBACK_MODEL_ID
 
-
 # ---------- إنشاء أو تحميل التضمينات ----------
 def compute_hash_key(texts: List[str], model_id: str) -> str:
     m = hashlib.sha1()
@@ -173,6 +166,7 @@ else:
     np.save(EMBED_PATH, corpus_embeddings)
     print(f"💾 Saved embeddings to {EMBED_PATH}")
 
+# نضمن تطبيع متجهات الآيات
 faiss.normalize_L2(corpus_embeddings)
 
 def build_or_load_faiss(emb: np.ndarray):
@@ -191,11 +185,9 @@ def build_or_load_faiss(emb: np.ndarray):
 
 faiss_index = build_or_load_faiss(corpus_embeddings)
 
-
 # ---------- BM25 ----------
 tokenized_docs = [stem_tokens(t.split()) for t in corpus_texts]
 bm25 = BM25Okapi(tokenized_docs)
-
 
 # ---------- نماذج الإدخال ----------
 class SearchRequest(BaseModel):
@@ -204,7 +196,6 @@ class SearchRequest(BaseModel):
     surah_filter: Optional[List[int]] = None
     add_context: bool = False
     semantic_only: bool = False
-
 
 # ---------- البحث ----------
 def surah_number_from_label(lbl: str) -> int:
@@ -216,6 +207,8 @@ def surah_number_from_label(lbl: str) -> int:
 def hybrid_candidates(query: str, n_sem: int = 200, n_bm: int = 200):
     q_prep = preprocess_text(query)
     q_emb = embed_query(q_prep)
+    # ✅ تطبيع تضمين الاستعلام قبل بحث FAISS (ضروري لقياس Cosine صحيح)
+    faiss.normalize_L2(q_emb)
     sims, idxs = faiss_index.search(q_emb, n_sem)
     idxs_sem, cos_sem = idxs[0].tolist(), sims[0].tolist()
 
@@ -241,7 +234,6 @@ def hybrid_candidates(query: str, n_sem: int = 200, n_bm: int = 200):
     cand.sort(key=lambda c: alpha * c["cos"] + (1 - alpha) * c["bm25n"], reverse=True)
     return cand
 
-
 # ---------- تطبيق FastAPI ----------
 app = FastAPI(title="Quran & Hadith Semantic Search (Stemming + Instructor)", version="1.0.0")
 app.add_middleware(
@@ -259,7 +251,6 @@ async def health():
         "stemming": STEM_AVAILABLE,
         "instructor": INSTR_AVAILABLE,
     }
-
 
 @app.post("/search")
 async def search(req: SearchRequest):
@@ -292,11 +283,9 @@ async def search(req: SearchRequest):
 
     return {"query": req.query, "results": out, "k": req.k}
 
-
 # ---------- قائمة السور ----------
 @app.get("/surahs")
 async def list_surahs():
-    """إرجاع قائمة السور من البيانات الحالية"""
     seen, surahs = set(), []
     for row in DATA:
         s = row.get("surah", "").strip()
@@ -310,7 +299,6 @@ async def list_surahs():
             continue
     surahs.sort(key=lambda x: x["id"])
     return {"surahs": surahs}
-
 
 if __name__ == "__main__":
     import uvicorn
